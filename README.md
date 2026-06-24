@@ -45,6 +45,16 @@ dist/MacDragInstallHelper.app
 
 如果被拦截，可以进入 **系统设置 > 隐私与安全性** 允许打开，或者按住 Control 点击应用并选择 **打开**。
 
+如果 macOS 提示“应用已损坏，无法打开”，一般是下载隔离属性导致的。可以在终端执行：
+
+```sh
+xattr -dr com.apple.quarantine /Applications/MacDragInstallHelper.app
+```
+
+然后再打开应用。
+
+要彻底避免这类提示，需要使用 Apple Developer ID 对应用签名并公证；当前 release 是自用/测试用途的未公证版本。
+
 ## 安全边界
 
 这个工具会自动执行 macOS 允许的安装步骤，例如挂载 DMG、复制 `.app`、移除 quarantine 属性和调用系统安装器。
