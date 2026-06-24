@@ -1,40 +1,52 @@
-# Mac DMG Drag Install Helper
+# Mac DMG 拖拽安装助手
 
-A small unsigned macOS utility for installing apps from `.dmg` files by drag and drop.
+一个未签名的 macOS 可视化小工具，用来简化 `.dmg` 安装包的安装流程：把 DMG 拖进窗口，应用会自动挂载、识别安装内容，并尽量完成后续安装步骤。
 
-## What v1 Supports
+## 功能
 
-- Drag a local `.dmg` file onto the app window.
-- Automatically mount the DMG with `hdiutil`.
-- Install the first supported payload in the mounted volume:
-  - Prefer `.app` bundles and copy them to `/Applications`.
-  - Otherwise install `.pkg` packages with macOS administrator authorization.
-- Remove `com.apple.quarantine` from copied `.app` bundles where macOS permits it.
-- Ask before replacing an existing app in `/Applications`.
-- Detach the mounted volume after the install attempt.
+- 支持把本地 `.dmg` 文件拖入应用窗口。
+- 自动使用 `hdiutil` 挂载 DMG。
+- 自动识别挂载卷里的安装内容：
+  - 优先安装 `.app`，复制到 `/Applications`。
+  - 如果没有 `.app`，则尝试安装 `.pkg`。
+- 复制 `.app` 后，尝试移除 `com.apple.quarantine` 隔离属性。
+- 如果 `/Applications` 里已经有同名应用，会先弹窗确认再替换。
+- 安装结束后自动卸载挂载卷。
+- 在界面中显示安装状态、流程进度和详细日志。
 
-This version intentionally does not support `.zip`, direct `.app` drops, or arbitrary command execution.
+第一版只支持 `.dmg`。暂不支持 `.zip`、直接拖入 `.app`，也不会执行任意自定义命令。
 
-## Build
+## 构建
 
-This project uses Swift Package Manager and does not require a full Xcode project.
+项目使用 Swift Package Manager，不需要完整的 Xcode 工程。
 
 ```sh
-swift test
-swift build -c release
+swift run DMGInstallCoreTests
+swift build -c release --product MacDragInstallHelper
 ./scripts/build-app.sh
 ```
 
-The packaged app is written to:
+打包后的应用会生成在：
 
 ```text
 dist/MacDragInstallHelper.app
 ```
 
-## First Run
+## 使用
 
-The app bundle is unsigned. macOS may block the first launch.
+1. 运行 `./scripts/build-app.sh`。
+2. 打开 `dist/MacDragInstallHelper.app`。
+3. 把 `.dmg` 文件拖入窗口里的投放区域。
+4. 根据界面提示确认替换已有应用，或输入 macOS 管理员密码完成 `.pkg` 安装。
 
-If that happens, open **System Settings > Privacy & Security** and allow the app, or control-click the app and choose **Open**.
+## 首次运行提示
 
-The helper automates install steps that macOS allows, but system prompts such as administrator authorization for `.pkg` installers still require your approval.
+这个应用默认是未签名的，macOS 第一次打开时可能会拦截。
+
+如果被拦截，可以进入 **系统设置 > 隐私与安全性** 允许打开，或者按住 Control 点击应用并选择 **打开**。
+
+## 安全边界
+
+这个工具会自动执行 macOS 允许的安装步骤，例如挂载 DMG、复制 `.app`、移除 quarantine 属性和调用系统安装器。
+
+但它不会绕过 macOS 必须由用户确认的安全机制。遇到 `.pkg` 管理员授权、系统隐私权限或 Gatekeeper 拦截时，仍然需要用户手动确认。
