@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="MacDragInstallHelper"
-APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
+APP_DISPLAY_NAME="DMG安装器"
+APP_DIR="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -38,13 +39,13 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>DMG 拖拽安装助手</string>
+  <string>DMG安装器</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.2.0</string>
+  <string>0.3.0</string>
   <key>CFBundleVersion</key>
-  <string>3</string>
+  <string>4</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>

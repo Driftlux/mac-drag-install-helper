@@ -1,4 +1,4 @@
-# Mac DMG 拖拽安装助手
+# DMG安装器
 
 一个未签名的 macOS 可视化小工具，用来简化 `.dmg` 安装包的安装流程：把 DMG 拖进窗口，应用会自动挂载、识别安装内容，并尽量完成后续安装步骤。
 
@@ -29,15 +29,15 @@ swift build -c release --product MacDragInstallHelper
 打包后的应用会生成在：
 
 ```text
-dist/MacDragInstallHelper.app
+dist/DMG安装器.app
 ```
 
 ## 使用
 
 1. 运行 `./scripts/build-app.sh`。
-2. 打开 `dist/MacDragInstallHelper.app`。
-3. 把 `.dmg` 文件拖入窗口里的投放区域。
-4. 根据界面提示确认替换已有应用，或输入 macOS 管理员密码完成 `.pkg` 安装。
+2. 打开 `dist/DMG安装器.app`。
+3. 点击工具栏里的 **选择 DMG** 从文件夹中选择安装包，或直接把 `.dmg` 文件拖入窗口。
+4. 点击 **安装**，根据界面提示确认替换已有应用，或输入 macOS 管理员密码完成 `.pkg` 安装。
 
 ## 首次运行提示
 
@@ -48,7 +48,7 @@ dist/MacDragInstallHelper.app
 如果 macOS 提示“应用已损坏，无法打开”，一般是下载隔离属性导致的。可以在终端执行：
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/MacDragInstallHelper.app
+xattr -dr com.apple.quarantine /Applications/DMG安装器.app
 ```
 
 然后再打开应用。

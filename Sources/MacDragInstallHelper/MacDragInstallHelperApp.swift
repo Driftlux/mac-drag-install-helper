@@ -1,3 +1,4 @@
+import AppKit
 import DMGInstallCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -7,7 +8,7 @@ struct MacDragInstallHelperApp: App {
     var body: some Scene {
         WindowGroup {
             InstallerView()
-                .frame(minWidth: 820, minHeight: 560)
+                .frame(minWidth: 1120, minHeight: 680)
         }
         .windowStyle(.titleBar)
     }
@@ -15,12 +16,68 @@ struct MacDragInstallHelperApp: App {
 
 @MainActor
 final class InstallerViewModel: ObservableObject {
-    @Published var phase: String = "待命"
-    @Published var log: [String] = ["把 .dmg 安装包拖到左侧区域开始。"]
+    @Published var phase = "待命"
+    @Published var log: [String] = ["从工具栏选择 DMG，或把 .dmg 文件拖入窗口。"]
+    @Published var selectedDMG: URL?
+    @Published var recentDMGs: [URL] = []
     @Published var isInstalling = false
     @Published var isDropTargeted = false
 
     private let installer = DMGInstaller()
+
+    var subtitle: String {
+        if isInstalling { return "正在处理安装包" }
+        if selectedDMG == nil { return "未选择文件" }
+        return selectedDMG?.lastPathComponent ?? "已选择文件"
+    }
+
+    func chooseDMG() {
+        let panel = NSOpenPanel()
+        panel.title = "选择 DMG 安装包"
+        panel.prompt = "选择"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "dmg") ?? .diskImage]
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+
+        selectDMG(url)
+    }
+
+    func selectDMG(_ url: URL) {
+        guard url.pathExtension.lowercased() == "dmg" else {
+            phase = "不支持"
+            log.append("当前版本只支持 .dmg 文件：\(url.lastPathComponent)")
+            return
+        }
+
+        selectedDMG = url
+        recentDMGs.removeAll { $0.standardizedFileURL.path == url.standardizedFileURL.path }
+        recentDMGs.insert(url, at: 0)
+        recentDMGs = Array(recentDMGs.prefix(8))
+        phase = "待安装"
+        log = ["已选择 \(url.lastPathComponent)", "点击右上角“安装”开始处理。"]
+    }
+
+    func clearSelection() {
+        selectedDMG = nil
+        phase = "待命"
+        log = ["从工具栏选择 DMG，或把 .dmg 文件拖入窗口。"]
+    }
+
+    func installSelected() {
+        guard let selectedDMG else {
+            log.append("请先选择一个 .dmg 文件。")
+            return
+        }
+
+        Task {
+            await install(dmgURL: selectedDMG)
+        }
+    }
 
     func install(from providers: [NSItemProvider]) -> Bool {
         guard !isInstalling else { return false }
@@ -42,7 +99,7 @@ final class InstallerViewModel: ObservableObject {
                         return
                     }
 
-                    await self.install(dmgURL: url)
+                    self.selectDMG(url)
                 }
             }
             return true
@@ -93,18 +150,9 @@ final class InstallerViewModel: ObservableObject {
     }
 
     nonisolated private static func url(from item: NSSecureCoding?) -> URL? {
-        if let url = item as? URL {
-            return url
-        }
-
-        if let data = item as? Data {
-            return URL(dataRepresentation: data, relativeTo: nil)
-        }
-
-        if let string = item as? String {
-            return URL(string: string)
-        }
-
+        if let url = item as? URL { return url }
+        if let data = item as? Data { return URL(dataRepresentation: data, relativeTo: nil) }
+        if let string = item as? String { return URL(string: string) }
         return nil
     }
 }
@@ -113,121 +161,28 @@ struct InstallerView: View {
     @StateObject private var viewModel = InstallerViewModel()
 
     var body: some View {
-        VStack(spacing: 18) {
-            HeaderBar()
+        HStack(spacing: 0) {
+            Sidebar(viewModel: viewModel)
+                .frame(width: 220)
 
-            HStack(alignment: .top, spacing: 18) {
-                DropPanel(viewModel: viewModel)
-                    .frame(minWidth: 440, maxWidth: .infinity, minHeight: 320)
+            Divider()
 
-                VStack(spacing: 14) {
-                    StatusPill(phase: viewModel.phase, isInstalling: viewModel.isInstalling)
-                    StageRail(phase: viewModel.phase, isInstalling: viewModel.isInstalling)
+            VStack(spacing: 0) {
+                Toolbar(viewModel: viewModel)
+
+                Divider()
+
+                HStack(spacing: 0) {
+                    DMGListPane(viewModel: viewModel)
+                        .frame(width: 360)
+
+                    Divider()
+
+                    DetailPane(viewModel: viewModel)
                 }
-                .frame(width: 250)
             }
-
-            LogPanel(lines: viewModel.log)
-                .frame(minHeight: 170)
         }
-        .padding(22)
         .background(AppStyle.windowBackground)
-    }
-}
-
-private struct HeaderBar: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "opticaldiscdrive.fill")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(AppStyle.accent)
-                .frame(width: 46, height: 46)
-                .background(RoundedRectangle(cornerRadius: 8).fill(AppStyle.accent.opacity(0.12)))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("DMG 拖拽安装助手")
-                    .font(.system(size: 22, weight: .semibold))
-                Text("自动挂载、识别并安装 DMG 里的 App 或 PKG")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Label("本地执行", systemImage: "lock.shield")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppStyle.success)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Capsule().fill(AppStyle.success.opacity(0.12)))
-        }
-    }
-}
-
-private struct DropPanel: View {
-    @ObservedObject var viewModel: InstallerViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("拖入安装包")
-                        .font(.system(size: 26, weight: .semibold))
-                    Text("仅支持本地 .dmg 文件")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Image(systemName: "shippingbox.and.arrow.backward")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(AppStyle.accent)
-                    .frame(width: 54, height: 54)
-                    .background(Circle().fill(AppStyle.accent.opacity(0.12)))
-            }
-
-            Spacer(minLength: 6)
-
-            VStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(viewModel.isDropTargeted ? AppStyle.accent.opacity(0.18) : Color.white.opacity(0.65))
-                        .frame(width: 128, height: 128)
-                    Circle()
-                        .stroke(viewModel.isDropTargeted ? AppStyle.accent : Color.black.opacity(0.12), lineWidth: 2)
-                        .frame(width: 128, height: 128)
-                    Image(systemName: viewModel.isInstalling ? "externaldrive.fill.badge.checkmark" : "arrow.down.doc.fill")
-                        .font(.system(size: 48, weight: .medium))
-                        .foregroundStyle(viewModel.isDropTargeted ? AppStyle.accent : AppStyle.ink.opacity(0.78))
-                }
-
-                Text(viewModel.isInstalling ? "正在安装" : "释放 DMG")
-                    .font(.system(size: 32, weight: .bold))
-                Text(viewModel.isInstalling ? "请保持窗口打开，等待 macOS 完成安装流程。" : "把安装包拖到这里，会自动挂载并寻找可安装内容。")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-
-            Spacer(minLength: 6)
-
-            HStack(spacing: 10) {
-                CapabilityBadge(icon: "doc.badge.gearshape", title: ".app")
-                CapabilityBadge(icon: "shippingbox", title: ".pkg")
-                CapabilityBadge(icon: "lock.shield", title: "隔离处理")
-            }
-        }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(AppStyle.panelBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(viewModel.isDropTargeted ? AppStyle.accent : Color.black.opacity(0.10), lineWidth: viewModel.isDropTargeted ? 3 : 1)
-        )
         .onDrop(
             of: [UTType.fileURL.identifier],
             isTargeted: $viewModel.isDropTargeted,
@@ -236,61 +191,405 @@ private struct DropPanel: View {
     }
 }
 
-private struct CapabilityBadge: View {
-    let icon: String
-    let title: String
+private struct Sidebar: View {
+    @ObservedObject var viewModel: InstallerViewModel
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundStyle(AppStyle.ink.opacity(0.76))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Capsule().fill(Color.white.opacity(0.72)))
-    }
-}
+        VStack(alignment: .leading, spacing: 22) {
+            Spacer()
+                .frame(height: 20)
 
-private struct StatusPill: View {
-    let phase: String
-    let isInstalling: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("当前状态")
-                    .font(.system(size: 13, weight: .medium))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("DMG安装器")
+                    .font(.system(size: 20, weight: .semibold))
+                Text("本地安装工具")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                Spacer()
-                if isInstalling {
-                    ProgressView()
-                        .controlSize(.small)
-                }
             }
+            .padding(.horizontal, 18)
+
+            SidebarSection(title: "安装") {
+                SidebarItem(icon: "opticaldiscdrive.fill", title: "DMG 文件", isSelected: true)
+                SidebarItem(icon: "clock.arrow.circlepath", title: "最近选择", isSelected: false)
+            }
+
+            SidebarSection(title: "工具") {
+                SidebarItem(icon: "terminal", title: "安装日志", isSelected: false)
+                SidebarItem(icon: "lock.shield", title: "安全说明", isSelected: false)
+            }
+
+            SidebarSection(title: "系统") {
+                SidebarItem(icon: "externaldrive", title: "挂载流程", isSelected: false)
+            }
+
+            Spacer()
 
             HStack(spacing: 10) {
                 Circle()
                     .fill(statusColor)
-                    .frame(width: 14, height: 14)
-                Text(phase)
-                    .font(.system(size: 23, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    .frame(width: 34, height: 34)
+                    .overlay(Image(systemName: statusIcon).foregroundStyle(.white).font(.system(size: 15, weight: .semibold)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.phase)
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(viewModel.subtitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.58))
+            .overlay(Rectangle().fill(Color.black.opacity(0.08)).frame(height: 1), alignment: .top)
+        }
+        .background(AppStyle.sidebarBackground)
+    }
+
+    private var statusColor: Color {
+        if viewModel.isInstalling { return AppStyle.accent }
+        if viewModel.phase == "安装完成" { return AppStyle.success }
+        if viewModel.phase.contains("失败") || viewModel.phase == "不支持" { return AppStyle.warning }
+        return AppStyle.neutral
+    }
+
+    private var statusIcon: String {
+        if viewModel.isInstalling { return "arrow.triangle.2.circlepath" }
+        if viewModel.phase == "安装完成" { return "checkmark" }
+        if viewModel.phase.contains("失败") || viewModel.phase == "不支持" { return "exclamationmark" }
+        return "clock"
+    }
+}
+
+private struct SidebarSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 18)
+
+            VStack(spacing: 4) {
+                content
+            }
+            .padding(.horizontal, 10)
+        }
+    }
+}
+
+private struct SidebarItem: View {
+    let icon: String
+    let title: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 22)
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+            Spacer()
+        }
+        .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.78))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Color.black.opacity(0.10) : Color.clear))
+    }
+}
+
+private struct Toolbar: View {
+    @ObservedObject var viewModel: InstallerViewModel
+
+    var body: some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("DMG 文件")
+                    .font(.system(size: 21, weight: .semibold))
+                Text(viewModel.subtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            ToolbarButton(icon: "folder", title: "选择 DMG") {
+                viewModel.chooseDMG()
+            }
+
+            ToolbarButton(icon: "play.fill", title: "安装", isProminent: true, isDisabled: viewModel.selectedDMG == nil || viewModel.isInstalling) {
+                viewModel.installSelected()
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(AppStyle.panelBackground))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.black.opacity(0.10), lineWidth: 1))
+        .padding(.horizontal, 24)
+        .frame(height: 72)
+        .background(AppStyle.toolbarBackground)
+    }
+}
+
+private struct ToolbarButton: View {
+    let icon: String
+    let title: String
+    var isProminent = false
+    var isDisabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(isProminent ? Color.white : Color.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(isProminent ? AppStyle.accent : Color.white.opacity(0.84)))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1)
+    }
+}
+
+private struct DMGListPane: View {
+    @ObservedObject var viewModel: InstallerViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("待安装")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(viewModel.recentDMGs.count)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 24)
+            .frame(height: 46)
+
+            Divider()
+
+            if viewModel.recentDMGs.isEmpty {
+                EmptyListDropTarget(viewModel: viewModel)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(viewModel.recentDMGs, id: \.standardizedFileURL.path) { url in
+                            DMGRow(url: url, isSelected: isSelected(url), isInstalling: viewModel.isInstalling)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    viewModel.selectDMG(url)
+                                }
+                            Divider()
+                                .padding(.leading, 72)
+                        }
+                    }
+                }
+            }
+        }
+        .background(Color.white.opacity(0.62))
+    }
+
+    private func isSelected(_ url: URL) -> Bool {
+        viewModel.selectedDMG?.standardizedFileURL.path == url.standardizedFileURL.path
+    }
+}
+
+private struct EmptyListDropTarget: View {
+    @ObservedObject var viewModel: InstallerViewModel
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "arrow.down.doc")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(viewModel.isDropTargeted ? AppStyle.accent : Color.secondary)
+            Text("拖入 DMG 文件")
+                .font(.system(size: 18, weight: .semibold))
+            Text("也可以点击右上角“选择 DMG”从文件夹中选取。")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(30)
+        .background(viewModel.isDropTargeted ? AppStyle.accent.opacity(0.07) : Color.clear)
+    }
+}
+
+private struct DMGRow: View {
+    let url: URL
+    let isSelected: Bool
+    let isInstalling: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "opticaldiscdrive")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(isSelected ? AppStyle.accent : Color.secondary)
+                .frame(width: 42, height: 42)
+                .background(Circle().fill((isSelected ? AppStyle.accent : Color.secondary).opacity(0.12)))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(url.lastPathComponent)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                Text(url.deletingLastPathComponent().path)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if isSelected && isInstalling {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .background(isSelected ? AppStyle.accent.opacity(0.07) : Color.clear)
+    }
+}
+
+private struct DetailPane: View {
+    @ObservedObject var viewModel: InstallerViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let selectedDMG = viewModel.selectedDMG {
+                SelectedDetail(viewModel: viewModel, url: selectedDMG)
+            } else {
+                NoSelectionView(viewModel: viewModel)
+            }
+
+            Divider()
+
+            LogPanel(lines: viewModel.log)
+                .frame(height: 230)
+        }
+        .background(Color.white)
+    }
+}
+
+private struct NoSelectionView: View {
+    @ObservedObject var viewModel: InstallerViewModel
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 52, weight: .semibold))
+                .foregroundStyle(Color.secondary.opacity(0.7))
+            Text("未选择 DMG")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(Color.secondary)
+            Text("从顶部工具栏选择文件，或直接拖入一个 .dmg 安装包。")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.secondary)
+            Button {
+                viewModel.chooseDMG()
+            } label: {
+                Label("从文件夹选择", systemImage: "folder")
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(AppStyle.accent))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(viewModel.isDropTargeted ? AppStyle.accent.opacity(0.06) : Color.white)
+    }
+}
+
+private struct SelectedDetail: View {
+    @ObservedObject var viewModel: InstallerViewModel
+    let url: URL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(url.lastPathComponent)
+                        .font(.system(size: 28, weight: .bold))
+                        .lineLimit(2)
+                    Text(url.path)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                StatusBadge(phase: viewModel.phase, isInstalling: viewModel.isInstalling)
+            }
+
+            StageRail(phase: viewModel.phase, isInstalling: viewModel.isInstalling)
+
+            HStack(spacing: 12) {
+                Button {
+                    viewModel.installSelected()
+                } label: {
+                    Label(viewModel.isInstalling ? "安装中" : "开始安装", systemImage: viewModel.isInstalling ? "arrow.triangle.2.circlepath" : "play.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 11)
+                        .background(Capsule().fill(AppStyle.accent))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isInstalling)
+
+                Button {
+                    viewModel.clearSelection()
+                } label: {
+                    Label("清除选择", systemImage: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
+                        .background(Capsule().fill(Color.black.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isInstalling)
+            }
+
+            Spacer()
+        }
+        .padding(34)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct StatusBadge: View {
+    let phase: String
+    let isInstalling: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 9, height: 9)
+            Text(phase)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(statusColor.opacity(0.13)))
+        .foregroundStyle(statusColor)
     }
 
     private var statusColor: Color {
         if isInstalling { return AppStyle.accent }
         if phase == "安装完成" { return AppStyle.success }
         if phase.contains("失败") || phase == "不支持" { return AppStyle.warning }
-        return Color.secondary
+        return AppStyle.neutral
     }
 }
 
@@ -306,36 +605,31 @@ private struct StageRail: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Text("安装流程")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-
+        HStack(spacing: 12) {
             ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
-                HStack(spacing: 12) {
+                HStack(spacing: 9) {
                     Image(systemName: stage.0)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(color(for: index))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 28, height: 28)
                         .background(Circle().fill(color(for: index).opacity(0.13)))
 
                     Text(stage.1)
-                        .font(.system(size: 14, weight: .semibold))
-                    Spacer()
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(color(for: index))
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.035)))
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(AppStyle.panelBackground))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.black.opacity(0.10), lineWidth: 1))
     }
 
     private func color(for index: Int) -> Color {
         if phase == "安装完成" { return AppStyle.success }
         if phase.contains("失败") || phase == "不支持" { return index == activeIndex ? AppStyle.warning : Color.secondary }
         if isInstalling && index <= activeIndex { return AppStyle.accent }
-        return Color.secondary.opacity(0.75)
+        return Color.secondary
     }
 
     private var activeIndex: Int {
@@ -353,7 +647,7 @@ private struct LogPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label("安装日志", systemImage: "terminal")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Text("\(lines.count) 行")
                     .font(.system(size: 12, weight: .medium))
@@ -379,17 +673,16 @@ private struct LogPanel: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.84)))
             .foregroundStyle(Color.white.opacity(0.90))
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 8).fill(AppStyle.panelBackground))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.black.opacity(0.10), lineWidth: 1))
+        .padding(18)
     }
 }
 
 private enum AppStyle {
-    static let accent = Color(red: 0.10, green: 0.35, blue: 0.92)
+    static let accent = Color(red: 0.08, green: 0.33, blue: 0.92)
     static let success = Color(red: 0.04, green: 0.55, blue: 0.30)
     static let warning = Color(red: 0.84, green: 0.28, blue: 0.16)
-    static let ink = Color(red: 0.10, green: 0.12, blue: 0.16)
-    static let windowBackground = Color(red: 0.92, green: 0.93, blue: 0.94)
-    static let panelBackground = Color(red: 0.985, green: 0.985, blue: 0.97)
+    static let neutral = Color(red: 0.48, green: 0.50, blue: 0.54)
+    static let windowBackground = Color(red: 0.96, green: 0.96, blue: 0.95)
+    static let sidebarBackground = Color(red: 0.93, green: 0.93, blue: 0.92)
+    static let toolbarBackground = Color(red: 0.985, green: 0.985, blue: 0.975)
 }
