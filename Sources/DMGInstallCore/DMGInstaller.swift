@@ -49,14 +49,14 @@ public struct DMGInstaller: @unchecked Sendable {
         confirmReplace: @Sendable (URL) async -> Bool
     ) async -> InstallResult {
         var log: [String] = []
-        log.append("Validating \(dmgURL.path)")
+        log.append("正在检查 \(dmgURL.path)")
 
         guard dmgURL.pathExtension.lowercased() == "dmg" else {
-            log.append("Only .dmg files are supported in v1.")
+            log.append("当前版本只支持 .dmg 文件。")
             return .init(status: .unsupported, log: log)
         }
 
-        log.append("Mounting DMG...")
+        log.append("正在挂载 DMG...")
         let attach = await commandRunner.run(.init(
             executable: URL(filePath: "/usr/bin/hdiutil"),
             arguments: ["attach", "-nobrowse", "-plist", dmgURL.path]
@@ -67,11 +67,11 @@ public struct DMGInstaller: @unchecked Sendable {
             return .init(status: .mountFailed, log: log)
         }
 
-        log.append("Mounted at \(mountPoint.path)")
+        log.append("已挂载到 \(mountPoint.path)")
         let installResult: InstallResult
         do {
             guard let payload = try payloadLocator.locatePayload(in: mountPoint) else {
-                log.append("No .app or .pkg payload found in mounted volume.")
+                log.append("挂载卷中没有找到 .app 或 .pkg。")
                 installResult = .init(status: .noPayloadFound, log: log)
                 return await detachedResult(installResult, mountPoint: mountPoint)
             }
@@ -83,7 +83,7 @@ public struct DMGInstaller: @unchecked Sendable {
                 installResult = await installPkg(pkgURL, log: log)
             }
         } catch {
-            log.append("Failed to inspect mounted volume: \(error.localizedDescription)")
+            log.append("检查挂载卷失败：\(error.localizedDescription)")
             installResult = .init(status: .failed, log: log)
         }
 
@@ -97,31 +97,31 @@ public struct DMGInstaller: @unchecked Sendable {
     ) async -> InstallResult {
         var log = initialLog
         let destination = applicationsDirectory.appending(path: appURL.lastPathComponent, directoryHint: .isDirectory)
-        log.append("Installing \(appURL.lastPathComponent) to \(destination.path)")
+        log.append("正在安装 \(appURL.lastPathComponent) 到 \(destination.path)")
 
         if fileSystem.itemExists(at: destination) {
-            log.append("\(destination.path) already exists; asking before replacement.")
+            log.append("\(destination.path) 已存在，等待确认是否替换。")
             guard await confirmReplace(destination) else {
-                log.append("Installation cancelled by user.")
+                log.append("用户已取消安装。")
                 return .init(status: .cancelled, log: log)
             }
 
             do {
                 try fileSystem.removeItem(at: destination)
-                log.append("Removed existing app.")
+                log.append("已移除旧版本应用。")
             } catch {
-                log.append("Could not remove existing app: \(error.localizedDescription)")
-                log.append("Close the app if it is running, then retry. You may also need permission to write to /Applications.")
+                log.append("无法移除旧版本应用：\(error.localizedDescription)")
+                log.append("请先关闭正在运行的应用后重试；也可能需要 /Applications 的写入权限。")
                 return .init(status: .copyFailed, log: log)
             }
         }
 
         do {
             try fileSystem.copyDirectory(from: appURL, to: destination)
-            log.append("Copied app to /Applications.")
+            log.append("已复制应用到 /Applications。")
         } catch {
-            log.append("Copy failed: \(error.localizedDescription)")
-            log.append("Close the app if it is running, then retry. You may also need permission to write to /Applications.")
+            log.append("复制失败：\(error.localizedDescription)")
+            log.append("请先关闭正在运行的应用后重试；也可能需要 /Applications 的写入权限。")
             return .init(status: .copyFailed, log: log)
         }
 
@@ -131,9 +131,9 @@ public struct DMGInstaller: @unchecked Sendable {
         ))
 
         if xattr.exitCode == 0 {
-            log.append("Removed quarantine attribute where present.")
+            log.append("已尝试移除 quarantine 隔离属性。")
         } else {
-            log.append("Quarantine removal failed, but the app was copied.")
+            log.append("移除 quarantine 隔离属性失败，但应用已经复制完成。")
             appendCommandFailure(xattr, to: &log)
         }
 
@@ -142,7 +142,7 @@ public struct DMGInstaller: @unchecked Sendable {
 
     private func installPkg(_ pkgURL: URL, log initialLog: [String]) async -> InstallResult {
         var log = initialLog
-        log.append("Installing package \(pkgURL.lastPathComponent)")
+        log.append("正在安装 PKG：\(pkgURL.lastPathComponent)")
         let installerCommand = "/usr/sbin/installer -pkg \(ShellQuote.singleQuoted(pkgURL.path)) -target /"
         let script = "do shell script \(String(reflecting: installerCommand)) with administrator privileges"
         let result = await commandRunner.run(.init(
@@ -155,20 +155,20 @@ public struct DMGInstaller: @unchecked Sendable {
             return .init(status: .pkgInstallFailed, log: log)
         }
 
-        log.append("Package installed.")
+        log.append("PKG 安装完成。")
         return .init(status: .success, log: log)
     }
 
     private func detachedResult(_ result: InstallResult, mountPoint: URL) async -> InstallResult {
         var log = result.log
-        log.append("Detaching \(mountPoint.path)")
+        log.append("正在卸载 \(mountPoint.path)")
         let detach = await commandRunner.run(.init(
             executable: URL(filePath: "/usr/bin/hdiutil"),
             arguments: ["detach", mountPoint.path]
         ))
 
         if detach.exitCode != 0 {
-            log.append("Detach failed; you may need to eject the mounted volume manually.")
+            log.append("卸载失败，可能需要手动推出挂载卷。")
             appendCommandFailure(detach, to: &log)
         }
 
@@ -198,6 +198,6 @@ public struct DMGInstaller: @unchecked Sendable {
         if !result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             log.append(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        log.append("Command exited with code \(result.exitCode).")
+        log.append("命令退出码：\(result.exitCode)。")
     }
 }

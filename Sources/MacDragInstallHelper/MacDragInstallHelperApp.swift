@@ -15,8 +15,8 @@ struct MacDragInstallHelperApp: App {
 
 @MainActor
 final class InstallerViewModel: ObservableObject {
-    @Published var phase: String = "Idle"
-    @Published var log: [String] = ["Drop a .dmg file to begin."]
+    @Published var phase: String = "待命"
+    @Published var log: [String] = ["把 .dmg 安装包拖到左侧区域开始。"]
     @Published var isInstalling = false
     @Published var isDropTargeted = false
 
@@ -31,14 +31,14 @@ final class InstallerViewModel: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     if let error {
-                        self.phase = "Failed"
-                        self.log.append("Could not read dropped file: \(error.localizedDescription)")
+                        self.phase = "失败"
+                        self.log.append("无法读取拖入的文件：\(error.localizedDescription)")
                         return
                     }
 
                     guard let url = droppedURL else {
-                        self.phase = "Failed"
-                        self.log.append("Drop item was not a local file URL.")
+                        self.phase = "失败"
+                        self.log.append("拖入内容不是本地文件。")
                         return
                     }
 
@@ -48,23 +48,23 @@ final class InstallerViewModel: ObservableObject {
             return true
         }
 
-        log.append("Only local .dmg files are supported.")
+        log.append("当前版本只支持本地 .dmg 文件。")
         return false
     }
 
     func install(dmgURL: URL) async {
         isInstalling = true
-        phase = "Installing"
-        log = ["Starting \(dmgURL.lastPathComponent)"]
+        phase = "安装中"
+        log = ["开始处理 \(dmgURL.lastPathComponent)"]
 
         let result = await installer.install(dmgURL: dmgURL) { destination in
             await MainActor.run {
                 let alert = NSAlert()
-                alert.messageText = "Replace existing app?"
-                alert.informativeText = "\(destination.path) already exists. Replace it with the app from this DMG?"
+                alert.messageText = "要替换已有应用吗？"
+                alert.informativeText = "\(destination.path) 已存在。是否用这个 DMG 里的应用替换它？"
                 alert.alertStyle = .warning
-                alert.addButton(withTitle: "Replace")
-                alert.addButton(withTitle: "Cancel")
+                alert.addButton(withTitle: "替换")
+                alert.addButton(withTitle: "取消")
                 return alert.runModal() == .alertFirstButtonReturn
             }
         }
@@ -76,19 +76,19 @@ final class InstallerViewModel: ObservableObject {
 
     private func label(for status: InstallStatus) -> String {
         switch status {
-        case .idle: "Idle"
-        case .validating: "Validating"
-        case .mounting: "Mounting"
-        case .installing: "Installing"
-        case .cleanup: "Cleaning Up"
-        case .success: "Success"
-        case .failed: "Failed"
-        case .unsupported: "Unsupported"
-        case .mountFailed: "Mount Failed"
-        case .noPayloadFound: "No Payload Found"
-        case .copyFailed: "Copy Failed"
-        case .pkgInstallFailed: "Package Install Failed"
-        case .cancelled: "Cancelled"
+        case .idle: "待命"
+        case .validating: "正在检查"
+        case .mounting: "正在挂载"
+        case .installing: "安装中"
+        case .cleanup: "正在清理"
+        case .success: "安装完成"
+        case .failed: "失败"
+        case .unsupported: "不支持"
+        case .mountFailed: "挂载失败"
+        case .noPayloadFound: "未找到应用"
+        case .copyFailed: "复制失败"
+        case .pkgInstallFailed: "安装包失败"
+        case .cancelled: "已取消"
         }
     }
 
@@ -114,6 +114,8 @@ struct InstallerView: View {
 
     var body: some View {
         VStack(spacing: 18) {
+            HeaderBar()
+
             HStack(alignment: .top, spacing: 18) {
                 DropPanel(viewModel: viewModel)
                     .frame(minWidth: 440, maxWidth: .infinity, minHeight: 320)
@@ -128,8 +130,37 @@ struct InstallerView: View {
             LogPanel(lines: viewModel.log)
                 .frame(minHeight: 170)
         }
-        .padding(20)
+        .padding(22)
         .background(AppStyle.windowBackground)
+    }
+}
+
+private struct HeaderBar: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "opticaldiscdrive.fill")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(AppStyle.accent)
+                .frame(width: 46, height: 46)
+                .background(RoundedRectangle(cornerRadius: 8).fill(AppStyle.accent.opacity(0.12)))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("DMG 拖拽安装助手")
+                    .font(.system(size: 22, weight: .semibold))
+                Text("自动挂载、识别并安装 DMG 里的 App 或 PKG")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Label("本地执行", systemImage: "lock.shield")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppStyle.success)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(AppStyle.success.opacity(0.12)))
+        }
     }
 }
 
@@ -140,9 +171,9 @@ private struct DropPanel: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Mac Drag Install Helper")
+                    Text("拖入安装包")
                         .font(.system(size: 26, weight: .semibold))
-                    Text("DMG Installer")
+                    Text("仅支持本地 .dmg 文件")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -171,9 +202,9 @@ private struct DropPanel: View {
                         .foregroundStyle(viewModel.isDropTargeted ? AppStyle.accent : AppStyle.ink.opacity(0.78))
                 }
 
-                Text(viewModel.isInstalling ? "Installing" : "Drop DMG")
+                Text(viewModel.isInstalling ? "正在安装" : "释放 DMG")
                     .font(.system(size: 32, weight: .bold))
-                Text(viewModel.isInstalling ? "Keep this window open while macOS completes the install." : "Release a .dmg file anywhere in this panel.")
+                Text(viewModel.isInstalling ? "请保持窗口打开，等待 macOS 完成安装流程。" : "把安装包拖到这里，会自动挂载并寻找可安装内容。")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -185,7 +216,7 @@ private struct DropPanel: View {
             HStack(spacing: 10) {
                 CapabilityBadge(icon: "doc.badge.gearshape", title: ".app")
                 CapabilityBadge(icon: "shippingbox", title: ".pkg")
-                CapabilityBadge(icon: "lock.shield", title: "quarantine")
+                CapabilityBadge(icon: "lock.shield", title: "隔离处理")
             }
         }
         .padding(24)
@@ -229,7 +260,7 @@ private struct StatusPill: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Status")
+                Text("当前状态")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -257,8 +288,8 @@ private struct StatusPill: View {
 
     private var statusColor: Color {
         if isInstalling { return AppStyle.accent }
-        if phase == "Success" { return AppStyle.success }
-        if phase.contains("Failed") || phase == "Unsupported" { return AppStyle.warning }
+        if phase == "安装完成" { return AppStyle.success }
+        if phase.contains("失败") || phase == "不支持" { return AppStyle.warning }
         return Color.secondary
     }
 }
@@ -268,15 +299,15 @@ private struct StageRail: View {
     let isInstalling: Bool
 
     private let stages = [
-        ("checkmark.shield", "Validate"),
-        ("externaldrive.badge.plus", "Mount"),
-        ("arrow.down.app", "Install"),
-        ("eject", "Clean Up")
+        ("checkmark.shield", "检查"),
+        ("externaldrive.badge.plus", "挂载"),
+        ("arrow.down.app", "安装"),
+        ("eject", "清理")
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text("Flow")
+            Text("安装流程")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
 
@@ -301,16 +332,16 @@ private struct StageRail: View {
     }
 
     private func color(for index: Int) -> Color {
-        if phase == "Success" { return AppStyle.success }
-        if phase.contains("Failed") || phase == "Unsupported" { return index == activeIndex ? AppStyle.warning : Color.secondary }
+        if phase == "安装完成" { return AppStyle.success }
+        if phase.contains("失败") || phase == "不支持" { return index == activeIndex ? AppStyle.warning : Color.secondary }
         if isInstalling && index <= activeIndex { return AppStyle.accent }
         return Color.secondary.opacity(0.75)
     }
 
     private var activeIndex: Int {
-        if phase == "Mounting" || phase == "Mount Failed" { return 1 }
-        if phase == "Installing" || phase.contains("Install") || phase == "Copy Failed" { return 2 }
-        if phase == "Cleaning Up" { return 3 }
+        if phase == "正在挂载" || phase == "挂载失败" { return 1 }
+        if phase == "安装中" || phase.contains("安装") || phase == "复制失败" { return 2 }
+        if phase == "正在清理" { return 3 }
         return 0
     }
 }
@@ -321,10 +352,10 @@ private struct LogPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Install Log", systemImage: "terminal")
+                Label("安装日志", systemImage: "terminal")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Text("\(lines.count) lines")
+                Text("\(lines.count) 行")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
             }
