@@ -24,6 +24,7 @@ final class InstallerViewModel: ObservableObject {
     @Published var isDropTargeted = false
 
     private let installer = DMGInstaller()
+    private var didOfferSelfInstall = false
 
     var subtitle: String {
         if isInstalling { return "正在处理安装包" }
@@ -45,6 +46,28 @@ final class InstallerViewModel: ObservableObject {
         }
 
         selectDMG(url)
+    }
+
+    func offerSelfInstallIfNeeded() {
+        guard !didOfferSelfInstall else { return }
+        didOfferSelfInstall = true
+
+        let appURL = Bundle.main.bundleURL
+        guard appURL.path.hasPrefix("/Volumes/") else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "要安装 DMG安装器 吗？"
+        alert.informativeText = "当前正在从磁盘映像中运行。推出 DMG 后，这个 App 会从访达中消失。建议先复制到“应用程序”文件夹。"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "安装到应用程序")
+        alert.addButton(withTitle: "稍后")
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            log.append("当前仍在 DMG 中运行。推出磁盘映像前，请先复制到 /Applications。")
+            return
+        }
+
+        installSelfToApplications(from: appURL)
     }
 
     func selectDMG(_ url: URL) {
@@ -131,6 +154,58 @@ final class InstallerViewModel: ObservableObject {
         isInstalling = false
     }
 
+    private func installSelfToApplications(from sourceURL: URL) {
+        let destinationURL = URL(filePath: "/Applications", directoryHint: .isDirectory)
+            .appending(path: sourceURL.lastPathComponent, directoryHint: .isDirectory)
+
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            removeQuarantine(at: destinationURL)
+            log.append("已安装到 \(destinationURL.path)。正在打开已安装版本。")
+            openInstalledCopyAndQuit(destinationURL)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法复制到应用程序"
+            alert.informativeText = "请手动把 DMG 中的 DMG安装器.app 拖到“应用程序”文件夹。\n\n错误：\(error.localizedDescription)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "知道了")
+            alert.runModal()
+            log.append("复制到 /Applications 失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func removeQuarantine(at appURL: URL) {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/xattr")
+        process.arguments = ["-dr", "com.apple.quarantine", appURL.path]
+        try? process.run()
+        process.waitUntilExit()
+    }
+
+    private func openInstalledCopyAndQuit(_ appURL: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
+            if let error {
+                Task { @MainActor in
+                    let alert = NSAlert()
+                    alert.messageText = "已复制，但无法自动打开"
+                    alert.informativeText = "请从“应用程序”文件夹手动打开 DMG安装器。\n\n错误：\(error.localizedDescription)"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "知道了")
+                    alert.runModal()
+                }
+                return
+            }
+
+            Task { @MainActor in
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     private func label(for status: InstallStatus) -> String {
         switch status {
         case .idle: "待命"
@@ -188,6 +263,9 @@ struct InstallerView: View {
             isTargeted: $viewModel.isDropTargeted,
             perform: viewModel.install(from:)
         )
+        .onAppear {
+            viewModel.offerSelfInstallIfNeeded()
+        }
     }
 }
 

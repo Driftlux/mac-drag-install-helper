@@ -24,20 +24,26 @@
 swift run DMGInstallCoreTests
 swift build -c release --product MacDragInstallHelper
 ./scripts/build-app.sh
+./scripts/build-dmg.sh
 ```
 
-打包后的应用会生成在：
+打包后的应用和 DMG 会生成在：
 
 ```text
 dist/DMG安装器.app
+dist/DMG-Installer-v0.3.1.dmg
 ```
 
 ## 使用
 
 1. 运行 `./scripts/build-app.sh`。
-2. 打开 `dist/DMG安装器.app`。
-3. 点击工具栏里的 **选择 DMG** 从文件夹中选择安装包，或直接把 `.dmg` 文件拖入窗口。
-4. 点击 **安装**，根据界面提示确认替换已有应用，或输入 macOS 管理员密码完成 `.pkg` 安装。
+2. 或运行 `./scripts/build-dmg.sh` 生成标准拖拽安装 DMG。
+3. 打开 DMG 后，把 `DMG安装器.app` 拖到 `Applications` 快捷入口。
+4. 从“应用程序”文件夹打开 DMG安装器。
+5. 点击工具栏里的 **选择 DMG** 从文件夹中选择安装包，或直接把 `.dmg` 文件拖入窗口。
+6. 点击 **安装**，根据界面提示确认替换已有应用，或输入 macOS 管理员密码完成 `.pkg` 安装。
+
+如果你直接在 DMG 窗口里打开了 `DMG安装器.app`，应用会提示先复制到 **应用程序** 文件夹。否则推出磁盘映像后，App 会从访达中消失。
 
 ## 首次运行提示
 
