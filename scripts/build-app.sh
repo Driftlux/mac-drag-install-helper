@@ -12,6 +12,8 @@ ICONSET_DIR="$ROOT_DIR/dist/$APP_NAME.iconset"
 ICON_FILE="$ROOT_DIR/dist/$APP_NAME.icns"
 
 cd "$ROOT_DIR"
+mkdir -p "$ROOT_DIR/dist"
+touch "$ROOT_DIR/dist/.metadata_never_index"
 swift build -c release --product "$APP_NAME"
 
 rm -rf "$APP_DIR"

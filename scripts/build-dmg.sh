@@ -13,6 +13,11 @@ FINAL_DMG="$ROOT_DIR/dist/DMG-Installer-v$VERSION.dmg"
 MOUNT_DIR="/Volumes/$VOLUME_NAME"
 
 cd "$ROOT_DIR"
+cleanup() {
+  rm -rf "$STAGING_DIR" "$RW_DMG" "$APP_PATH"
+}
+trap cleanup EXIT
+
 "$ROOT_DIR/scripts/build-app.sh"
 
 rm -rf "$STAGING_DIR" "$RW_DMG" "$FINAL_DMG"
@@ -50,6 +55,5 @@ APPLESCRIPT
 sync
 hdiutil detach "$MOUNT_DIR"
 hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$FINAL_DMG"
-rm -f "$RW_DMG"
 
 echo "Built $FINAL_DMG"
