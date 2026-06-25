@@ -12,8 +12,9 @@ enum TestRunner {
         try await installerTests.reportsMountFailure()
         try await installerTests.copiesAppPayloadAndRunsQuarantineRemoval()
         try await installerTests.asksBeforeReplacingExistingApp()
+        try await installerTests.keepsBothWhenExistingAppConflicts()
         try await installerTests.reportsPkgInstallFailure()
 
-        print("All 9 DMGInstallCore tests passed.")
+        print("All 10 DMGInstallCore tests passed.")
     }
 }

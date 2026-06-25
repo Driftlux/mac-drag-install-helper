@@ -64,6 +64,7 @@ final class MockFileSystem: FileSystemManaging {
 
     var existingPaths: Set<String>
     private(set) var copiedApps: [Copy] = []
+    private(set) var removedPaths: [String] = []
     var copyError: Error?
 
     init(existingURLs: Set<URL> = []) {
@@ -75,7 +76,9 @@ final class MockFileSystem: FileSystemManaging {
     }
 
     func removeItem(at url: URL) throws {
-        existingPaths.remove(url.standardizedFileURL.path)
+        let path = url.standardizedFileURL.path
+        removedPaths.append(path)
+        existingPaths.remove(path)
     }
 
     func copyDirectory(from source: URL, to destination: URL) throws {

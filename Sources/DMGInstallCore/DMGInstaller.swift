@@ -26,6 +26,12 @@ public struct InstallResult: Equatable {
     }
 }
 
+public enum InstallConflictResolution: Equatable, Sendable {
+    case replace
+    case keepBoth
+    case cancel
+}
+
 public struct DMGInstaller: @unchecked Sendable {
     private let commandRunner: CommandRunning
     private let fileSystem: FileSystemManaging
@@ -46,7 +52,7 @@ public struct DMGInstaller: @unchecked Sendable {
 
     public func install(
         dmgURL: URL,
-        confirmReplace: @Sendable (URL) async -> Bool
+        resolveConflict: @Sendable (URL) async -> InstallConflictResolution
     ) async -> InstallResult {
         var log: [String] = []
         log.append("正在检查 \(dmgURL.path)")
@@ -78,7 +84,7 @@ public struct DMGInstaller: @unchecked Sendable {
 
             switch payload {
             case .app(let appURL):
-                installResult = await installApp(appURL, log: log, confirmReplace: confirmReplace)
+                installResult = await installApp(appURL, log: log, resolveConflict: resolveConflict)
             case .pkg(let pkgURL):
                 installResult = await installPkg(pkgURL, log: log)
             }
@@ -93,26 +99,30 @@ public struct DMGInstaller: @unchecked Sendable {
     private func installApp(
         _ appURL: URL,
         log initialLog: [String],
-        confirmReplace: @Sendable (URL) async -> Bool
+        resolveConflict: @Sendable (URL) async -> InstallConflictResolution
     ) async -> InstallResult {
         var log = initialLog
-        let destination = applicationsDirectory.appending(path: appURL.lastPathComponent, directoryHint: .isDirectory)
+        var destination = applicationsDirectory.appending(path: appURL.lastPathComponent, directoryHint: .isDirectory)
         log.append("正在安装 \(appURL.lastPathComponent) 到 \(destination.path)")
 
         if fileSystem.itemExists(at: destination) {
-            log.append("\(destination.path) 已存在，等待确认是否替换。")
-            guard await confirmReplace(destination) else {
+            log.append("\(destination.path) 已存在，等待选择处理方式。")
+            switch await resolveConflict(destination) {
+            case .cancel:
                 log.append("用户已取消安装。")
                 return .init(status: .cancelled, log: log)
-            }
-
-            do {
-                try fileSystem.removeItem(at: destination)
-                log.append("已移除旧版本应用。")
-            } catch {
-                log.append("无法移除旧版本应用：\(error.localizedDescription)")
-                log.append("请先关闭正在运行的应用后重试；也可能需要 /Applications 的写入权限。")
-                return .init(status: .copyFailed, log: log)
+            case .replace:
+                do {
+                    try fileSystem.removeItem(at: destination)
+                    log.append("已移除旧版本应用。")
+                } catch {
+                    log.append("无法移除旧版本应用：\(error.localizedDescription)")
+                    log.append("请先关闭正在运行的应用后重试；也可能需要 /Applications 的写入权限。")
+                    return .init(status: .copyFailed, log: log)
+                }
+            case .keepBoth:
+                destination = uniqueAppDestination(for: destination)
+                log.append("将同时保留两个版本，新应用会复制为 \(destination.lastPathComponent)。")
             }
         }
 
@@ -138,6 +148,22 @@ public struct DMGInstaller: @unchecked Sendable {
         }
 
         return .init(status: .success, log: log)
+    }
+
+    private func uniqueAppDestination(for originalDestination: URL) -> URL {
+        let baseName = originalDestination.deletingPathExtension().lastPathComponent
+        let pathExtension = originalDestination.pathExtension
+        let directory = originalDestination.deletingLastPathComponent()
+
+        var index = 2
+        while true {
+            let candidateName = "\(baseName) \(index).\(pathExtension)"
+            let candidate = directory.appending(path: candidateName, directoryHint: .isDirectory)
+            if !fileSystem.itemExists(at: candidate) {
+                return candidate
+            }
+            index += 1
+        }
     }
 
     private func installPkg(_ pkgURL: URL, log initialLog: [String]) async -> InstallResult {

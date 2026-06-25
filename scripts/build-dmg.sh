@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DISPLAY_NAME="DMG安装器"
-VERSION="0.3.1"
+VERSION="0.3.2"
 VOLUME_NAME="DMG安装器"
 APP_PATH="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
 STAGING_DIR="$ROOT_DIR/dist/dmg-root"

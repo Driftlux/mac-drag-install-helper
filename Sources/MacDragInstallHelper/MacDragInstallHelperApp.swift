@@ -140,12 +140,21 @@ final class InstallerViewModel: ObservableObject {
         let result = await installer.install(dmgURL: dmgURL) { destination in
             await MainActor.run {
                 let alert = NSAlert()
-                alert.messageText = "要替换已有应用吗？"
-                alert.informativeText = "\(destination.path) 已存在。是否用这个 DMG 里的应用替换它？"
+                alert.messageText = "应用已存在"
+                alert.informativeText = "\(destination.path) 已存在。请选择处理方式。"
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "替换")
+                alert.addButton(withTitle: "保留两者")
                 alert.addButton(withTitle: "取消")
-                return alert.runModal() == .alertFirstButtonReturn
+
+                switch alert.runModal() {
+                case .alertFirstButtonReturn:
+                    return .replace
+                case .alertSecondButtonReturn:
+                    return .keepBoth
+                default:
+                    return .cancel
+                }
             }
         }
 
@@ -160,7 +169,20 @@ final class InstallerViewModel: ObservableObject {
 
         do {
             if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
+                switch resolveSelfInstallConflict(at: destinationURL) {
+                case .cancel:
+                    log.append("用户已取消安装到 /Applications。")
+                    return
+                case .replace:
+                    try FileManager.default.removeItem(at: destinationURL)
+                case .keepBoth:
+                    let uniqueURL = uniqueSelfInstallDestination(for: destinationURL)
+                    try FileManager.default.copyItem(at: sourceURL, to: uniqueURL)
+                    removeQuarantine(at: uniqueURL)
+                    log.append("已安装到 \(uniqueURL.path)。正在打开已安装版本。")
+                    openInstalledCopyAndQuit(uniqueURL)
+                    return
+                }
             }
             try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             removeQuarantine(at: destinationURL)
@@ -174,6 +196,40 @@ final class InstallerViewModel: ObservableObject {
             alert.addButton(withTitle: "知道了")
             alert.runModal()
             log.append("复制到 /Applications 失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func resolveSelfInstallConflict(at destinationURL: URL) -> InstallConflictResolution {
+        let alert = NSAlert()
+        alert.messageText = "应用程序中已存在 DMG安装器"
+        alert.informativeText = "\(destinationURL.path) 已存在。请选择处理方式。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "替换")
+        alert.addButton(withTitle: "保留两者")
+        alert.addButton(withTitle: "取消")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .replace
+        case .alertSecondButtonReturn:
+            return .keepBoth
+        default:
+            return .cancel
+        }
+    }
+
+    private func uniqueSelfInstallDestination(for originalDestination: URL) -> URL {
+        let baseName = originalDestination.deletingPathExtension().lastPathComponent
+        let pathExtension = originalDestination.pathExtension
+        let directory = originalDestination.deletingLastPathComponent()
+
+        var index = 2
+        while true {
+            let candidate = directory.appending(path: "\(baseName) \(index).\(pathExtension)", directoryHint: .isDirectory)
+            if !FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            index += 1
         }
     }
 

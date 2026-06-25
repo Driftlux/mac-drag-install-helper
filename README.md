@@ -10,7 +10,7 @@
   - 优先安装 `.app`，复制到 `/Applications`。
   - 如果没有 `.app`，则尝试安装 `.pkg`。
 - 复制 `.app` 后，尝试移除 `com.apple.quarantine` 隔离属性。
-- 如果 `/Applications` 里已经有同名应用，会先弹窗确认再替换。
+- 如果 `/Applications` 里已经有同名应用，会弹窗选择 **替换**、**保留两者** 或 **取消**。
 - 安装结束后自动卸载挂载卷。
 - 在界面中显示安装状态、流程进度和详细日志。
 
@@ -31,7 +31,7 @@ swift build -c release --product MacDragInstallHelper
 
 ```text
 dist/DMG安装器.app
-dist/DMG-Installer-v0.3.1.dmg
+dist/DMG-Installer-v0.3.2.dmg
 ```
 
 ## 使用
